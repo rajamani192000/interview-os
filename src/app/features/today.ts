@@ -11,13 +11,15 @@ import { ProgressService } from '../core/services/progress.service';
 import { SettingsService, UserService } from '../core/services/user.service';
 import { daysBetween, errorMessage } from '../core/util';
 import { UI } from '../shared/ui';
+import { AllowanceComponent } from '../shared/schedule-ui';
+import { ScheduleService } from '../core/services/schedule.service';
 
 const TYPE_LABEL: Record<PlanItem['type'], string> = { revision: 'Revision', weak: 'Weak area', new: 'New', communication: 'Communication', voice: 'Voice interview', mock: 'Mock', 'job-prep': 'Job prep' };
 
 /** TODAY: the first screen after sign-in. One primary action: START TODAY. */
 @Component({
   selector: 'app-today',
-  imports: [RouterLink, ...UI],
+  imports: [RouterLink, AllowanceComponent, ...UI],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="page stack">
     @if (loading()) { <app-loading text="Building today's plan…" [rows]="4" /> }
@@ -38,7 +40,7 @@ const TYPE_LABEL: Record<PlanItem['type'], string> = { revision: 'Revision', wea
           <h2>WELCOME BACK</h2>
           <p style="margin:0">Your goal is still active. Let's restart with 15 minutes.</p>
           <p class="small muted" style="margin:0">{{ missed() }} planned day{{ missed() === 1 ? '' : 's' }} missed — no backlog. Today: 3 revision · 2 weak · 1 communication · 1 voice. Normal plans resume after this.</p>
-          <button class="btn primary big block" (click)="start()">START RECOVERY</button>
+          <button class="btn primary big block" (click)="start()" [disabled]="schedule.access()?.allowed === false">START RECOVERY</button>
         </section>
       } @else if (interviewDays() === 0) {
         <section class="card hero stack">
@@ -49,6 +51,7 @@ const TYPE_LABEL: Record<PlanItem['type'], string> = { revision: 'Revision', wea
         </section>
       }
 
+      <app-allowance />
       <section class="card stack">
         <div class="row between"><h2 style="margin:0">Today's preparation</h2><span class="badge {{ p.mode === 'normal' ? '' : 'warn' }}">{{ p.mode === 'normal' ? 'Normal plan' : p.mode === 'recovery' ? 'Recovery plan' : 'Interview plan' }}</span></div>
         <p class="xs muted" style="margin:0">{{ why() }}</p>
@@ -63,7 +66,7 @@ const TYPE_LABEL: Record<PlanItem['type'], string> = { revision: 'Revision', wea
           <div class="banner good">Today's plan is complete. Your next revisions are scheduled — see you tomorrow.</div>
           <div class="row"><a class="btn primary" routerLink="/app/progress">See progress</a><a class="btn" routerLink="/app/practice" [queryParams]="{ source: 'new' }">Practise extra</a></div>
         } @else if (p.mode !== 'recovery' || pr().done) {
-          <button class="btn primary big block" (click)="start()">{{ pr().done ? 'CONTINUE' : 'START TODAY' }} <span class="small" style="font-weight:500">· next: {{ typeLabel[pr().next!.type] }}</span></button>
+          <button class="btn primary big block" (click)="start()" [disabled]="schedule.access()?.allowed === false">{{ pr().done ? 'CONTINUE' : 'START TODAY' }} <span class="small" style="font-weight:500">· next: {{ typeLabel[pr().next!.type] }}</span></button>
         }
       </section>
 
@@ -138,6 +141,7 @@ export class TodayComponent implements OnInit {
   private clock = inject(ClockService);
   private toast = inject(ToastService);
   private router = inject(Router);
+  schedule = inject(ScheduleService);
   typeLabel = TYPE_LABEL;
   loading = signal(true);
   busy = signal(false);
@@ -192,6 +196,7 @@ export class TodayComponent implements OnInit {
     this.err.set('');
     try {
       await this.md.ensureLoaded();
+      this.schedule.ensureLoaded().catch(() => undefined);
       await Promise.all([this.plan.ensureToday(), this.revision.ensureLoaded(), this.attempts.ensureLoaded(), this.sessions.ensureLoaded(), this.interviews.ensureLoaded(), this.bookmarks.ensureLoaded()]);
       this.plan.loadHistory(14).catch(() => undefined);
       this.jobs.ensureLoaded().catch(() => undefined);

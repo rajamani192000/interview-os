@@ -16,13 +16,14 @@ import { errorMessage } from '../core/util';
 import { MigrationResult, OldState } from '../core/logic/migrate';
 import { MigrationService } from '../core/services/migration.service';
 import { UI } from '../shared/ui';
+import { ScheduleSettingsComponent } from './schedule-settings';
 
-type Tab = 'profile' | 'routine' | 'reminders' | 'voice' | 'ai' | 'data';
+type Tab = 'profile' | 'time' | 'routine' | 'reminders' | 'voice' | 'ai' | 'data';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, ...UI],
+  imports: [FormsModule, ScheduleSettingsComponent, ...UI],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="page narrow stack">
     <app-page-header title="Settings" />
@@ -51,6 +52,7 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
             <div><button class="btn primary" (click)="saveProfile()" [disabled]="busy()">Save profile & goal</button></div>
           </section>
         }
+        @case ('time') { <app-schedule-settings /> }
         @case ('routine') {
           <section class="card stack">
             <div class="grid two">
@@ -59,7 +61,7 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
               <div class="field"><label for="pt">Preferred preparation time</label><input id="pt" class="input" type="time" [(ngModel)]="s.preferredTime" /></div>
               <div class="field"><label for="np">New questions per day</label><input id="np" class="input" type="number" min="0" max="20" [(ngModel)]="s.newPerDay" /></div>
             </div>
-            <div class="field"><span class="label">Study days</span><div class="row">@for (d of days; track $index) { <button class="chip" [class.on]="s.studyDays.includes($index)" (click)="toggleDay($index)">{{ d }}</button> }</div></div>
+            <p class="small muted" style="margin:0">Practice days, allowed hours and daily limits are set per day in <button type="button" class="btn sm ghost" style="min-height:0;padding:0 4px" (click)="tab.set('time')">Practice time</button>. The daily target here sizes your plan (capped by today's limit).</p>
             <div class="field"><label for="th">Theme</label><select id="th" class="input" [(ngModel)]="s.theme"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
             <div><button class="btn primary" (click)="saveSettings(true)" [disabled]="busy()">Save & rebuild today's plan</button></div>
           </section>
@@ -163,7 +165,7 @@ export class SettingsComponent implements OnInit {
   private progress = inject(ProgressService);
   private toast = inject(ToastService);
   private route = inject(ActivatedRoute);
-  tabs: { id: Tab; label: string }[] = [{ id: 'profile', label: 'Profile & goal' }, { id: 'routine', label: 'Routine' }, { id: 'reminders', label: 'Reminders' }, { id: 'voice', label: 'Voice' }, { id: 'ai', label: 'AI' }, { id: 'data', label: 'Data & account' }];
+  tabs: { id: Tab; label: string }[] = [{ id: 'profile', label: 'Profile & goal' }, { id: 'time', label: 'Practice time' }, { id: 'routine', label: 'Routine' }, { id: 'reminders', label: 'Reminders' }, { id: 'voice', label: 'Voice' }, { id: 'ai', label: 'AI' }, { id: 'data', label: 'Data & account' }];
   modes = REMINDER_MODES;
   modeHelp: Record<string, string> = {
     Normal: 'Up to 2 reminders on study days; stops once your minimum is met.',
@@ -225,8 +227,8 @@ export class SettingsComponent implements OnInit {
     const s = this.s;
     if (s.dailyMinutes < 15) { this.toast.bad('Daily target must be at least 15 minutes.'); return; }
     if (s.minMinutes < 5 || s.minMinutes > s.dailyMinutes) { this.toast.bad('Minimum commitment must be 5 minutes or more and not above the daily target.'); return; }
-    if (!s.studyDays.length) { this.toast.bad('Pick at least one study day.'); return; }
     s.reminders.maxPerDay = Math.min(8, Math.max(1, +s.reminders.maxPerDay));
+    s.studyDays = this.settings.settings().studyDays; // owned by the practice schedule
     return this.run(async () => { await this.settings.save(s); if (rebuild) await this.plan.regenerate(); }, 'Settings saved');
   }
   saveAi() {

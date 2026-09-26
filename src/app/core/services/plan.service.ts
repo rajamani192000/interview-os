@@ -5,6 +5,7 @@ import { weakAreas } from '../logic/weak';
 import { DailyPlan, PlanItem, StudySession } from '../models';
 import { addDays, clean, daysBetween } from '../util';
 import { InterviewService } from './career.service';
+import { ScheduleService } from './schedule.service';
 import { AuthService } from './auth.service';
 import { UserCollection } from './collection';
 import { CategoryService, MasterDataStore, TopicService } from './master-data.service';
@@ -56,6 +57,7 @@ export class DailyPlanService {
   private user = inject(UserService);
   private sessions = inject(StudySessionService);
   private interviews = inject(InterviewService);
+  private schedule = inject(ScheduleService);
 
   readonly plan = signal<DailyPlan | null>(null);
   readonly history = signal<DailyPlan[]>([]);
@@ -86,7 +88,7 @@ export class DailyPlanService {
   }
 
   private async deps() {
-    await Promise.all([this.md.ensureLoaded(), this.revision.ensureLoaded(), this.attempts.ensureLoaded(), this.bookmarks.ensureLoaded(), this.settings.ensureLoaded(), this.user.ensureLoaded(), this.sessions.ensureLoaded(), this.interviews.ensureLoaded()]);
+    await Promise.all([this.md.ensureLoaded(), this.revision.ensureLoaded(), this.attempts.ensureLoaded(), this.bookmarks.ensureLoaded(), this.settings.ensureLoaded(), this.user.ensureLoaded(), this.sessions.ensureLoaded(), this.interviews.ensureLoaded(), this.schedule.ensureLoaded().catch(() => undefined)]);
   }
 
   private async load(today: string) {
@@ -100,6 +102,13 @@ export class DailyPlanService {
     if (!this.md.questions().length) { this.plan.set(p); return; } // empty bank: show, but don't store
     await this.store.set(this.path(today), clean({ ...p, generatedAt: SERVER_TIME }));
     this.plan.set({ ...p, generatedAt: Date.now() });
+  }
+
+  /** Today's plan size: the daily target, capped by today's scheduled practice limit (if any). */
+  private budget(target: number): number {
+    const t = this.schedule.today();
+    if (!t || !t.enabled || t.limitMinutes === null) return target;
+    return Math.max(15, Math.min(target, t.limitMinutes));
   }
 
   /** Nearest upcoming interview: tracked interview rounds first, then the goal's date. */
@@ -130,7 +139,7 @@ export class DailyPlanService {
     ];
     const p = buildPlan({
       today,
-      dailyMinutes: s.dailyMinutes,
+      dailyMinutes: this.budget(s.dailyMinutes),
       newPerDay: s.newPerDay,
       voiceEnabled: s.voice.enabled,
       questions: this.md.questions(),
@@ -155,7 +164,7 @@ export class DailyPlanService {
       const doneRefs = new Set(done.map(i => i.refId).filter(Boolean));
       const doneTypes = new Set(done.filter(i => !i.refId).map(i => i.type));
       // a finished day stays finished (unless the user explicitly asks for a recovery session)
-      let left = forceRecovery ? Infinity : keep.every(i => i.done) ? 0 : Math.max(0, s.dailyMinutes - doneMinutes);
+      let left = forceRecovery ? Infinity : keep.every(i => i.done) ? 0 : Math.max(0, this.budget(s.dailyMinutes) - doneMinutes);
       const extra = p.items.filter(i => {
         if (i.refId ? doneRefs.has(i.refId) : doneTypes.has(i.type)) return false;
         if (i.minutes > left) return false;

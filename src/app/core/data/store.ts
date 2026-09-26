@@ -16,6 +16,9 @@ export interface BatchOp {
 
 /** Marker replaced by the backend with a server timestamp (Firestore serverTimestamp()). */
 export const SERVER_TIME = '__SERVER_TIME__';
+/** Marker for an atomic numeric increment (Firestore increment()). Top-level fields only. */
+export const INCREMENT = (n: number) => ({ __increment: n });
+export const isIncrement = (v: unknown): v is { __increment: number } => !!v && typeof v === 'object' && '__increment' in (v as object);
 
 /**
  * Data access abstraction. The Firestore implementation is the production source of truth;

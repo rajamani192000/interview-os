@@ -39,6 +39,10 @@ async function register(page: Page, u: typeof USER) {
   await page.getByLabel('Minimum daily commitment (minutes)').fill('15');
   await page.getByLabel('Reminder mode').selectOption('Strict');
   await page.getByRole('button', { name: 'Continue' }).click();
+  // step 3: daily practice time (whole day so the suite can run at any hour)
+  await expect(page.getByRole('heading', { name: 'Daily practice / spending time' })).toBeVisible();
+  await page.getByRole('button', { name: 'Whole day' }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
   await page.getByLabel('Interview goal').fill('Senior full-stack role');
   await page.getByRole('button', { name: 'Finish setup' }).click();
   await expect(page).toHaveURL(/app\/dashboard/);
@@ -370,6 +374,134 @@ test('offline indicator and mobile layout', async ({ page, context }) => {
   await context.setOffline(false);
   await page.locator('nav.bottom').getByRole('button', { name: 'More' }).click();
   await expect(page.getByRole('dialog', { name: 'Menu' }).getByText('Weak Areas')).toBeVisible();
+});
+
+const dbKey = 'ios.memory.db.v1';
+async function uidOf(page: Page) {
+  return page.evaluate(() => JSON.parse(localStorage.getItem('ios.memory.auth.v1')!).current as string);
+}
+async function todayInfo(page: Page) {
+  return page.evaluate(() => {
+    const d = new Date();
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { key, name: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getDay()] };
+  });
+}
+/** Edits the demo backend's stored data while the app isn't running (so it can't overwrite it), then reopens `then`. */
+async function editDb(page: Page, fn: string, arg: unknown, then: string) {
+  await page.goto('/manifest.webmanifest');
+  await page.evaluate(([k, f, a]) => { const db = JSON.parse(localStorage.getItem(k as string) || '{}'); new Function('db', 'a', f as string)(db, a); localStorage.setItem(k as string, JSON.stringify(db)); }, [dbKey, fn, arg]);
+  await page.goto(then);
+}
+
+test('flexible practice schedule: weekly per-day, copy, overrides, enforcement, usage, migration', async ({ page }) => {
+  await open(page);
+  await signIn(page, USER);
+  const t = await todayInfo(page);
+  const uid = await uidOf(page);
+
+  // settings → practice time: allowance card + weekly schedule
+  await page.goto('/app/settings?tab=time');
+  await expect(page.getByRole('heading', { name: `Today – ${t.name}` })).toBeVisible();
+  await page.getByRole('radio', { name: 'Custom schedule for each day' }).click();
+  await page.getByRole('button', { name: 'Edit Monday' }).click();
+  await page.getByLabel('Start time').fill('06:00');
+  await page.getByLabel('End time').fill('21:00');
+  await page.getByLabel('Unit').selectOption('hours');
+  await page.getByLabel('Maximum practice time').fill('2');
+  await page.getByRole('button', { name: 'Weekdays' }).click();
+  await page.getByRole('button', { name: 'Copy', exact: true }).click();
+  await expect(page.getByText('Copied Monday → Tuesday, Wednesday, Thursday, Friday')).toBeVisible();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('.list-item', { hasText: 'Tuesday' }).getByText('6:00 AM – 9:00 PM · 2 hrs')).toBeVisible();
+  // validation: end before start
+  await page.getByRole('button', { name: 'Edit Saturday' }).click();
+  await page.getByLabel('Start time').fill('20:00');
+  await page.getByLabel('End time').fill('08:00');
+  await expect(page.getByText('Saturday: end time must be after start time').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save weekly schedule' })).toBeDisabled();
+  await page.getByLabel('End time').fill('23:00');
+  await page.getByLabel('Unit').selectOption('hours');
+  await page.getByLabel('Maximum practice time').fill('4');
+  await page.getByRole('button', { name: 'Close' }).click();
+  // disable today
+  await page.getByRole('button', { name: `Edit ${t.name}` }).click();
+  await page.getByLabel(`${t.name} enabled`).uncheck();
+  await page.getByRole('button', { name: 'Save weekly schedule' }).click();
+  await expect(page.locator('app-allowance').getByText('Practice is not scheduled for today.')).toBeVisible();
+  // Firestore data: weekly doc + history
+  const w = await page.evaluate(([k, u]) => JSON.parse(localStorage.getItem(k)!)[`users/${u}/schedule/weekly`], [dbKey, uid]);
+  expect(w.mode).toBe('custom');
+  expect(w.days['6']).toMatchObject({ start: '20:00', end: '23:00', limitMinutes: 240 });
+  // enforcement: practice screens redirect to Today with the reason
+  await page.goto('/app/practice?source=new');
+  await expect(page).toHaveURL(/app\/today\?blocked=disabled/);
+  await expect(page.locator('app-allowance').getByText('Not scheduled', { exact: true }).first()).toBeVisible();
+
+  // calendar override for today (unlimited) beats the disabled weekday
+  await page.goto('/app/settings?tab=time');
+  await page.getByRole('button', { name: '+ Add Calendar Override' }).click();
+  await page.getByRole('button', { name: 'Unlimited' }).click();
+  await page.getByLabel('Note (optional)').fill('Extra prep');
+  await page.getByRole('button', { name: 'Save override' }).click();
+  await expect(page.locator('.list-item', { hasText: t.key }).getByText('Unlimited · Extra prep')).toBeVisible();
+  await expect(page.locator('app-allowance').getByText('Available now')).toBeVisible();
+  await expect(page.locator(`button.cell.override[aria-label^="${t.key}"]`)).toBeVisible();
+
+  // usage tracking: time on a practice screen is stored per day
+  await page.goto('/app/practice?source=new');
+  await expect(page.getByRole('button', { name: 'I answered in my head' })).toBeVisible();
+  for (let i = 0; i < 4; i++) { await page.mouse.move(100 + i * 10, 200); await page.waitForTimeout(1000); }
+  await page.locator('aside').getByRole('link', { name: 'Today' }).click(); // leaving the practice screen flushes usage
+  await expect.poll(async () => page.evaluate(([k, u, d]) => JSON.parse(localStorage.getItem(k)!)[`users/${u}/usage/${d}`]?.seconds || 0, [dbKey, uid, t.key])).toBeGreaterThan(1);
+
+  // override with a 5-minute limit + 6 minutes already used → limit reached message and block
+  await page.goto('/app/settings?tab=time');
+  await page.locator('.list-item', { hasText: t.key }).getByRole('button', { name: 'Edit' }).click();
+  await page.getByRole('button', { name: 'Custom time' }).click();
+  await page.getByRole('button', { name: 'Whole day' }).click();
+  await page.getByLabel('Unit').selectOption('minutes');
+  await page.getByLabel('Maximum practice time').fill('5');
+  await page.getByRole('button', { name: 'Save override' }).click();
+  await expect(page.locator('.list-item', { hasText: t.key }).getByText('All day · 5 min · Extra prep')).toBeVisible();
+  await editDb(page, `db['users/' + a.uid + '/usage/' + a.day] = { date: a.day, seconds: 360 };`, { uid, day: t.key }, '/app/settings?tab=time');
+  await expect(page.locator('app-allowance').getByText(/You have reached today's practice time limit\. Your next available session is/)).toBeVisible();
+  await expect(page.locator('app-allowance').getByText('Limit reached')).toBeVisible();
+  await page.goto('/app/voice');
+  await expect(page).toHaveURL(/blocked=limit/);
+
+  // outside today's window
+  await page.goto('/app/settings?tab=time');
+  await page.locator('.list-item', { hasText: t.key }).getByRole('button', { name: 'Edit' }).click();
+  await page.getByLabel('Start time').fill('00:00');
+  await page.getByLabel('End time').fill('00:01');
+  await page.getByLabel('Maximum practice time').fill('1');
+  await page.getByRole('button', { name: 'Save override' }).click();
+  await expect(page.locator('app-allowance').getByText("Your practice time is currently unavailable. Today's available time is 12:00 AM – 12:01 AM.")).toBeVisible();
+
+  // remove the override → back to the (disabled) weekday
+  await page.locator('.list-item', { hasText: t.key }).getByRole('button', { name: 'Remove' }).click();
+  await expect(page.locator('app-allowance').getByText('Practice is not scheduled for today.')).toBeVisible();
+  // re-enable today for later tests
+  await page.getByRole('button', { name: `Edit ${t.name}` }).click();
+  await page.getByLabel(`${t.name} enabled`).check();
+  await page.getByRole('button', { name: 'Whole day' }).click();
+  await page.getByRole('button', { name: 'Save weekly schedule' }).click();
+  await expect(page.locator('app-allowance').getByText('Available now')).toBeVisible();
+  await expect(page.getByText(/Removed override for/)).toBeVisible();
+
+  // dashboard shows today's allowance
+  await page.goto('/app/dashboard');
+  await expect(page.locator('app-allowance').getByRole('heading', { name: `Today – ${t.name}` })).toBeVisible();
+
+  // migration: a user with only the old single daily setting gets a schedule built from it
+  await editDb(page, `delete db['users/' + a.uid + '/schedule/weekly']; db['users/' + a.uid + '/settings/main'].dailyMinutes = 50;`, { uid }, '/app/dashboard');
+  await expect(page.locator('app-allowance').getByText('50 min').first()).toBeVisible();
+  await expect(page.locator('app-allowance').getByText(/not enforced/)).toBeVisible();
+  const mw = await page.evaluate(([k, u]) => JSON.parse(localStorage.getItem(k)!)[`users/${u}/schedule/weekly`], [dbKey, uid]);
+  expect(mw).toMatchObject({ migratedFrom: 'settings', enforce: false });
+  expect(mw.default.limitMinutes).toBe(50);
+  await persist(page);
 });
 
 test('no uncaught page errors during the run', async () => {

@@ -6,17 +6,21 @@ import { AppConfigService } from '../core/services/app-config.service';
 import { AuthService } from '../core/services/auth.service';
 import { CategoryService, MasterDataStore } from '../core/services/master-data.service';
 import { DEFAULT_GOAL, DEFAULT_SETTINGS, SettingsService, UserService } from '../core/services/user.service';
-import { errorMessage } from '../core/util';
+import { clean, errorMessage } from '../core/util';
+import { SERVER_TIME } from '../core/data/store';
+import { daySchedule, summarize, validateWeekly, WeeklySchedule } from '../core/logic/schedule';
+import { deviceTimeZone, ScheduleService } from '../core/services/schedule.service';
+import { WeeklyEditorComponent } from '../shared/schedule-ui';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 @Component({
   selector: 'app-onboarding',
-  imports: [FormsModule],
+  imports: [FormsModule, WeeklyEditorComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<main class="page narrow">
     <div class="card stack">
-      <div class="row between"><span class="eyebrow">Setup · step {{ step() }} of 3</span><button class="btn ghost sm" (click)="auth.signOut()">Sign out</button></div>
+      <div class="row between"><span class="eyebrow">Setup · step {{ step() }} of 4</span><button class="btn ghost sm" (click)="auth.signOut()">Sign out</button></div>
       @switch (step()) {
         @case (1) {
           <h1>About you</h1>
@@ -37,14 +41,18 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
             <div class="field"><label for="pt">Preferred preparation time</label><input id="pt" class="input" type="time" [(ngModel)]="f.preferredTime" name="pt" /></div>
             <div class="field"><label for="np">New questions per day</label><input id="np" class="input" type="number" min="0" max="20" [(ngModel)]="f.newPerDay" name="np" /></div>
           </div>
-          <div class="field"><span class="label">Study days</span><div class="row">
-            @for (d of days; track $index) { <button type="button" class="chip" [class.on]="f.studyDays.includes($index)" (click)="toggleDay($index)">{{ d }}</button> }
-          </div></div>
           <div class="field"><label for="rm">Reminder mode</label>
             <select id="rm" class="input" [(ngModel)]="f.reminderMode" name="rm">@for (m of modes; track m) { <option [value]="m">{{ m }}</option> }</select>
             <span class="hint">{{ modeHelp[f.reminderMode] }}</span></div>
         }
         @case (3) {
+          <h1>Daily practice / spending time</h1>
+          <p class="small muted" style="margin:0">When can you practise, and for how long each day? Every day can be different, and you can override single dates later from Settings.</p>
+          <app-weekly-editor [(value)]="sched" />
+          <label class="check small"><input type="checkbox" [(ngModel)]="sched.enforce" name="enf" /> Lock practice screens outside these times and after the daily limit</label>
+          @for (e of schedCheck().errors; track e) { <div class="error-text">{{ e }}</div> }
+        }
+        @case (4) {
           <h1>Your goal</h1>
           <div class="field"><label for="ig">Interview goal</label><input id="ig" class="input" [(ngModel)]="f.interviewGoal" name="ig" placeholder="Clear senior full-stack interviews at product companies" /></div>
           <div class="grid two">
@@ -62,7 +70,7 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       @if (error()) { <div class="banner bad small" role="alert">{{ error() }}</div> }
       <div class="row between">
         @if (step() > 1) { <button class="btn" (click)="step.set(step() - 1)">Back</button> } @else { <span></span> }
-        @if (step() < 3) { <button class="btn primary" (click)="next()">Continue</button> }
+        @if (step() < 4) { <button class="btn primary" (click)="next()">Continue</button> }
         @else { <button class="btn primary" (click)="finish()" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Finish setup' }}</button> }
       </div>
     </div>
@@ -72,6 +80,10 @@ export class OnboardingComponent implements OnInit {
   auth = inject(AuthService);
   private users = inject(UserService);
   private settings = inject(SettingsService);
+  private schedule = inject(ScheduleService);
+  sched: WeeklySchedule = { mode: 'same', default: daySchedule({ start: '06:00', end: '22:00', limitMinutes: 120, unit: 'hours' }), days: {}, enforce: true, timezone: deviceTimeZone(), migratedFrom: 'onboarding' };
+  schedCheck = () => validateWeekly(this.sched);
+  private schedSeeded = false;
   private router = inject(Router);
   private md = inject(MasterDataStore);
   private config = inject(AppConfigService);
@@ -121,7 +133,18 @@ export class OnboardingComponent implements OnInit {
     if (this.step() === 2) {
       if (this.f.dailyMinutes < 15) return this.error.set('Daily target should be at least 15 minutes.');
       if (this.f.minMinutes < 5 || this.f.minMinutes > this.f.dailyMinutes) return this.error.set('Minimum commitment must be between 5 minutes and your daily target.');
-      if (!this.f.studyDays.length) return this.error.set('Pick at least one study day.');
+      if (!this.schedSeeded) {
+        // seed the schedule's daily limit from the study target the first time
+        this.schedSeeded = true;
+        this.sched = { ...this.sched, default: { ...this.sched.default, limitMinutes: +this.f.dailyMinutes, unit: +this.f.dailyMinutes % 60 === 0 ? 'hours' : 'minutes' } };
+      }
+    }
+    if (this.step() === 3) {
+      const v = validateWeekly(this.sched);
+      if (v.errors.length) return this.error.set(v.errors[0]);
+      const on = [0, 1, 2, 3, 4, 5, 6].filter(d => (this.sched.mode === 'same' ? this.sched.default : this.sched.days[String(d)] || this.sched.default).enabled);
+      if (!on.length) return this.error.set('Enable at least one practice day.');
+      this.f.studyDays = on;
     }
     this.step.set(this.step() + 1);
   }
@@ -135,8 +158,13 @@ export class OnboardingComponent implements OnInit {
         { displayName: f.name.trim(), currentRole: f.currentRole.trim() || undefined, yearsExperience: Number(f.years) || 0, targetRole: f.targetRole.trim(), targetSalary: f.targetSalary.trim() || undefined, primaryStack: f.skills.split(',').map(s => s.trim()).filter(Boolean) },
         settings,
         { ...DEFAULT_GOAL, targetRole: f.targetRole.trim(), interviewGoal: f.interviewGoal.trim() || undefined, targetDate: f.targetDate || undefined, interviewDate: f.interviewDate || undefined, weeklyQuestionTarget: +f.weekly, focusCategoryIds: f.focus },
+        uid => [
+          { type: 'set', path: `users/${uid}/schedule/weekly`, data: clean({ ...this.sched, migratedFrom: 'onboarding', updatedAt: SERVER_TIME }) },
+          { type: 'set', path: `users/${uid}/scheduleHistory/onboarding`, data: { kind: 'weekly', summary: 'Set during onboarding: ' + summarize(this.sched), createdAt: SERVER_TIME } },
+        ],
       );
       this.settings.settings.set(settings);
+      await this.schedule.ensureLoaded(true).catch(() => undefined);
       await this.router.navigateByUrl('/app/dashboard');
     } catch (e) {
       this.error.set('Could not save your setup: ' + errorMessage(e));

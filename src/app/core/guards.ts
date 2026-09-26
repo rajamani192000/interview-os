@@ -2,6 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { AuthService } from './services/auth.service';
 import { SettingsService, UserService } from './services/user.service';
+import { ScheduleService } from './services/schedule.service';
 
 /** Signed-in users only. Unknown → /login?next=… */
 export const authGuard: CanActivateFn = async (_r, state) => {
@@ -36,4 +37,16 @@ export const guestGuard: CanActivateFn = async () => {
   const auth = inject(AuthService), router = inject(Router);
   const u = await auth.whenReady();
   return u ? router.createUrlTree(['/app/today']) : true;
+};
+
+/**
+ * Practice screens follow the user's schedule (window, daily limit, disabled days, overrides).
+ * Blocked → Today, which explains why and when the next session is.
+ */
+export const practiceGuard: CanActivateFn = async () => {
+  const schedule = inject(ScheduleService), router = inject(Router), auth = inject(AuthService);
+  if (!(await auth.whenReady())) return router.createUrlTree(['/login']);
+  try { await schedule.ensureLoaded(); } catch { return true; } // offline without cache: don't lock the user out
+  const a = schedule.access();
+  return !a || a.allowed ? true : router.createUrlTree(['/app/today'], { queryParams: { blocked: a.reason } });
 };

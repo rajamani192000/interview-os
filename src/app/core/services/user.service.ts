@@ -1,5 +1,5 @@
 import { computed, effect, inject, Injectable, signal } from '@angular/core';
-import { DATA_STORE, SERVER_TIME } from '../data/store';
+import { BatchOp, DATA_STORE, SERVER_TIME } from '../data/store';
 import { UserGoal, UserProfile, UserSettings } from '../models';
 import { clean } from '../util';
 import { AuthService } from './auth.service';
@@ -72,7 +72,7 @@ export class UserService {
   }
 
   /** Onboarding: creates UserProfile, UserSettings and UserGoal in one atomic batch. */
-  async completeOnboarding(profile: Omit<UserProfile, 'uid' | 'email' | 'onboarded'>, settings: UserSettings, goal: UserGoal) {
+  async completeOnboarding(profile: Omit<UserProfile, 'uid' | 'email' | 'onboarded'>, settings: UserSettings, goal: UserGoal, extra: (uid: string) => BatchOp[] = () => []) {
     const u = this.auth.user();
     if (!u) throw new Error('Not signed in');
     const p: UserProfile = { ...profile, uid: u.uid, email: u.email, onboarded: true };
@@ -80,6 +80,7 @@ export class UserService {
       { type: 'set', path: `users/${u.uid}`, data: clean({ ...p, createdAt: SERVER_TIME, updatedAt: SERVER_TIME }), merge: true },
       { type: 'set', path: `users/${u.uid}/settings/main`, data: clean({ ...settings, updatedAt: SERVER_TIME }) },
       { type: 'set', path: `users/${u.uid}/goals/main`, data: clean({ ...goal, updatedAt: SERVER_TIME }) },
+      ...extra(u.uid),
     ]);
     this.profile.set(p);
     this.goal.set(goal);

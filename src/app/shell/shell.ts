@@ -7,6 +7,8 @@ import { AuthService } from '../core/services/auth.service';
 import { NotificationService } from '../core/services/notification.service';
 import { NetService, ToastService } from '../core/services/platform.service';
 import { UserService } from '../core/services/user.service';
+import { ScheduleService, UsageService } from '../core/services/schedule.service';
+import { ScheduleBlockComponent } from '../shared/schedule-ui';
 
 export interface NavItem { path: string; label: string; icon: string; }
 export const APP_NAV: NavItem[] = [
@@ -57,7 +59,7 @@ export class ToastsComponent {
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, ScheduleBlockComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .layout { display: grid; grid-template-columns: 1fr; min-height: 100vh; }
@@ -106,6 +108,7 @@ export class ToastsComponent {
           <span class="row"><button class="btn sm" (click)="resend()">Resend</button><button class="btn ghost sm" (click)="verifyHidden.set(true)">Hide</button></span></div></div>
       }
       <main><router-outlet /></main>
+      @if (usage.onPractice() && schedule.access(); as a) { @if (!a.allowed) { <app-schedule-block [message]="a.message" /> } }
     </div>
   </div>
   <nav class="bottom" aria-label="Bottom navigation">
@@ -127,6 +130,8 @@ export class ShellComponent implements OnInit, OnDestroy {
   net = inject(NetService);
   notif = inject(NotificationService);
   config = inject(AppConfigService);
+  schedule = inject(ScheduleService);
+  usage = inject(UsageService);
   private toast = inject(ToastService);
   private router = inject(Router);
   admin = input(false);
@@ -141,6 +146,8 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.config.ensureLoaded();
+    this.schedule.ensureLoaded().catch(() => undefined);
+    this.usage.start();
     this.notif.ensureLoaded().catch(() => undefined);
     this.notif.startLoop();
     if (this.router.url.includes('denied=admin')) this.toast.bad('That area is for administrators only.');

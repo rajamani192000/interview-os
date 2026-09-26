@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard, authGuard, guestGuard, onboardedGuard } from './core/guards';
+import { adminGuard, authGuard, guestGuard, onboardedGuard, practiceGuard } from './core/guards';
 import { AboutComponent, FeaturesComponent, LandingComponent, NotFoundComponent, PrivacyComponent, TermsComponent } from './public/public-pages';
 
 const f = (p: Promise<Record<string, unknown>>, name: string) => p.then(m => m[name] as never);
@@ -24,14 +24,14 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'today' },
       { path: 'dashboard', loadComponent: () => f(import('./features/dashboard'), 'DashboardComponent'), title: 'Dashboard' },
       { path: 'today', loadComponent: () => f(import('./features/today'), 'TodayComponent'), title: 'Today' },
-      { path: 'practice', loadComponent: () => f(import('./features/practice'), 'PracticeComponent'), title: 'Practice' },
+      { path: 'practice', canActivate: [practiceGuard], loadComponent: () => f(import('./features/practice'), 'PracticeComponent'), title: 'Practice' },
       { path: 'questions', loadComponent: () => f(import('./features/questions'), 'QuestionsComponent'), title: 'Questions' },
       { path: 'questions/:id', loadComponent: () => f(import('./features/questions'), 'QuestionDetailComponent'), title: 'Question' },
       { path: 'revision', loadComponent: () => f(import('./features/revision'), 'RevisionComponent'), title: 'Revision' },
       { path: 'weak-areas', loadComponent: () => f(import('./features/revision'), 'WeakAreasComponent'), title: 'Weak areas' },
-      { path: 'communication', loadComponent: () => f(import('./features/communication'), 'CommunicationComponent'), title: 'Communication' },
-      { path: 'voice', loadComponent: () => f(import('./features/voice'), 'VoiceComponent'), title: 'Voice interview' },
-      { path: 'mock-interview', loadComponent: () => f(import('./features/mock'), 'MockComponent'), title: 'Mock interview' },
+      { path: 'communication', canActivate: [practiceGuard], loadComponent: () => f(import('./features/communication'), 'CommunicationComponent'), title: 'Communication' },
+      { path: 'voice', canActivate: [practiceGuard], loadComponent: () => f(import('./features/voice'), 'VoiceComponent'), title: 'Voice interview' },
+      { path: 'mock-interview', canActivate: [practiceGuard], loadComponent: () => f(import('./features/mock'), 'MockComponent'), title: 'Mock interview' },
       { path: 'jobs', loadComponent: () => f(import('./features/jobs'), 'JobsComponent'), title: 'Jobs' },
       { path: 'jobs/:id', loadComponent: () => f(import('./features/jobs'), 'JobDetailComponent'), title: 'Job' },
       { path: 'projects', loadComponent: () => f(import('./features/projects'), 'ProjectsComponent'), title: 'Projects' },

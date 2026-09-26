@@ -6,11 +6,11 @@ import {
   signInWithEmailAndPassword, signInWithPopup, signInWithRedirect, signOut, updateProfile, User, verifyPasswordResetCode,
 } from 'firebase/auth';
 import {
-  clearIndexedDbPersistence, collection, deleteDoc, doc, DocumentData, Firestore, getCountFromServer, getDoc, getDocs, initializeFirestore, limit, onSnapshot, orderBy,
+  clearIndexedDbPersistence, collection, deleteDoc, doc, DocumentData, Firestore, getCountFromServer, getDoc, getDocs, increment, initializeFirestore, limit, onSnapshot, orderBy,
   persistentLocalCache, persistentMultipleTabManager, query, QueryConstraint, serverTimestamp, setDoc, startAfter, terminate, Timestamp, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { environment } from '../../../environments/environment';
-import { AuthBackend, AuthUser, BatchOp, BlobStore, DataStore, QueryOpts, SERVER_TIME } from './store';
+import { AuthBackend, AuthUser, BatchOp, BlobStore, DataStore, isIncrement, QueryOpts, SERVER_TIME } from './store';
 
 let app: FirebaseApp | null = null;
 export function firebaseApp(): FirebaseApp {
@@ -32,6 +32,7 @@ function fromFs(v: unknown): unknown {
 /** Replaces SERVER_TIME markers and drops undefined (Firestore rejects undefined). */
 function toFs(v: unknown): unknown {
   if (v === SERVER_TIME) return serverTimestamp();
+  if (isIncrement(v)) return increment(v.__increment);
   if (Array.isArray(v)) return v.map(toFs);
   if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
     const o: Record<string, unknown> = {};

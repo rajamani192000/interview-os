@@ -10,10 +10,12 @@ import { ProgressService } from '../core/services/progress.service';
 import { UserService } from '../core/services/user.service';
 import { daysBetween, errorMessage } from '../core/util';
 import { UI } from '../shared/ui';
+import { AllowanceComponent } from '../shared/schedule-ui';
+import { ScheduleService } from '../core/services/schedule.service';
 
 @Component({
   selector: 'app-dashboard',
-  imports: [RouterLink, DatePipe, ...UI],
+  imports: [RouterLink, DatePipe, AllowanceComponent, ...UI],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="page stack">
     <app-page-header title="Dashboard" [subtitle]="subtitle()"><a class="btn primary" routerLink="/app/today">Go to Today →</a></app-page-header>
@@ -27,6 +29,7 @@ import { UI } from '../shared/ui';
         <app-bar [value]="overall() ?? 0" />
         <div class="row"><a class="btn primary" routerLink="/app/today">{{ plan.progress().complete ? 'Plan complete ✓' : 'START TODAY' }}</a><span class="small muted">Today: {{ plan.progress().done }}/{{ plan.progress().total }} items</span></div>
       </section>
+      <app-allowance />
       <div class="grid stats">
         @for (r of areas(); track r.key) {
           <div class="card slim stack" style="gap:4px" [title]="r.note"><span class="eyebrow">{{ r.label }}</span><b style="font-size:1.3rem">{{ r.value === null ? '—' : r.value + '%' }}</b>@if (r.value === null) { <span class="xs muted">not enough data yet</span> }<app-bar [value]="r.value ?? 0" /></div>
@@ -66,6 +69,7 @@ export class DashboardComponent implements OnInit {
   private user = inject(UserService);
   private interviews = inject(InterviewService);
   private clock = inject(ClockService);
+  private schedule = inject(ScheduleService);
   loading = signal(true);
   err = signal('');
   total = ACHIEVEMENTS.length;
@@ -89,7 +93,7 @@ export class DashboardComponent implements OnInit {
     this.loading.set(true);
     this.err.set('');
     try {
-      await Promise.all([this.progress.loadAll(), this.plan.ensureToday(), this.interviews.ensureLoaded()]);
+      await Promise.all([this.schedule.ensureLoaded().catch(() => undefined), this.progress.loadAll(), this.plan.ensureToday(), this.interviews.ensureLoaded()]);
       this.tick.update(x => x + 1);
     } catch (e) { this.err.set(errorMessage(e)); }
     finally { this.loading.set(false); }

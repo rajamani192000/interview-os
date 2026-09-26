@@ -148,7 +148,7 @@ export class ProgressService {
   /** Exports all of the user's own data (not master data) as JSON. */
   async exportJson() {
     const uid = this.auth.uid()!;
-    const names = ['attempts', 'revisionSchedules', 'dailyPlans', 'studySessions', 'communicationSessions', 'voiceSessions', 'mockInterviews', 'bookmarks', 'notes', 'jobs', 'interviews', 'projects', 'achievements', 'notifications'];
+    const names = ['attempts', 'revisionSchedules', 'dailyPlans', 'studySessions', 'communicationSessions', 'voiceSessions', 'mockInterviews', 'bookmarks', 'notes', 'jobs', 'interviews', 'projects', 'achievements', 'notifications', 'schedule', 'scheduleOverrides', 'usage', 'scheduleHistory'];
     const out: Record<string, unknown> = { exportedAt: new Date().toISOString(), app: 'Interview OS', profile: this.user.profile(), settings: this.settings.settings(), goal: this.user.goal() };
     for (const n of names) out[n] = await this.store.list(`users/${uid}/${n}`);
     downloadFile(`interview-os-export-${this.clock.today()}.json`, JSON.stringify(out, null, 2));
@@ -179,7 +179,7 @@ export class ProgressService {
   /** Deletes every document under users/{uid} (used by "Delete my data" and account deletion). */
   async deleteAllUserData() {
     const uid = this.auth.uid()!;
-    const names = ['attempts', 'revisionSchedules', 'dailyPlans', 'studySessions', 'communicationSessions', 'voiceSessions', 'mockInterviews', 'bookmarks', 'notes', 'jobs', 'interviews', 'projects', 'achievements', 'notifications', 'settings', 'goals', 'devices'];
+    const names = ['attempts', 'revisionSchedules', 'dailyPlans', 'studySessions', 'communicationSessions', 'voiceSessions', 'mockInterviews', 'bookmarks', 'notes', 'jobs', 'interviews', 'projects', 'achievements', 'notifications', 'settings', 'goals', 'devices', 'schedule', 'scheduleOverrides', 'usage', 'scheduleHistory', 'progress'];
     for (const n of names) {
       const rows = await this.store.list<{ id: string }>(`users/${uid}/${n}`);
       if (rows.length) await this.store.batch(rows.map(r => ({ type: 'delete' as const, path: `users/${uid}/${n}/${r.id}` })));

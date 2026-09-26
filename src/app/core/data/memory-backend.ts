@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { AuthBackend, AuthUser, BatchOp, DataStore, QueryOpts, SERVER_TIME } from './store';
+import { AuthBackend, AuthUser, BatchOp, DataStore, isIncrement, QueryOpts, SERVER_TIME } from './store';
 
 /**
  * In-browser fake backend for LOCAL DEMO and AUTOMATED TESTS only (environment.backend = 'memory').
@@ -29,6 +29,7 @@ export class MemoryStore implements DataStore {
   }
   private resolve(v: unknown): unknown {
     if (v === SERVER_TIME) return Date.now();
+    if (isIncrement(v)) return v;
     if (Array.isArray(v)) return v.map(x => this.resolve(x));
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, this.resolve(x)]));
     return v;
@@ -109,6 +110,8 @@ export class MemoryStore implements DataStore {
     if (op.type === 'delete') { delete this.docs[op.path]; return; }
     const data = this.resolve(op.data || {}) as Doc;
     delete data['id'];
+    const prev = this.docs[op.path] || {};
+    for (const [k, v] of Object.entries(data)) if (isIncrement(v)) data[k] = (Number(prev[k]) || 0) + v.__increment;
     if (op.type === 'update') {
       if (!this.docs[op.path]) throw Object.assign(new Error('No document to update: ' + op.path), { code: 'not-found' });
       this.docs[op.path] = { ...this.docs[op.path], ...data };
