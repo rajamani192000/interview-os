@@ -1,0 +1,104 @@
+rules_version = '2';
+
+// Interview OS security rules.
+// Principles:
+//  * A signed-in user can read/write ONLY documents under /users/{theirUid}/...
+//  * Master data (categories, topics, questions, meta) is readable by signed-in users and
+//    writable only by admins. Admin = a document at /admins/{uid}, created by the project owner
+//    in the Firebase console (clients can never write /admins).
+//  * Master data is archived, never deleted, from the client.
+//  * Anything not matched below is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function incoming() { return request.resource.data; }
+    function stampedBy() {
+      // audit fields must name the writer
+      return incoming().updatedBy == request.auth.uid;
+    }
+
+    // ---------------- per-user data ----------------
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && incoming().uid == uid
+        && incoming().keys().hasAll(['uid', 'email'])
+        && !incoming().keys().hasAny(['role', 'isAdmin', 'admin']);
+      allow delete: if isOwner(uid);
+
+      // attempts are an append-only history (no edits), deletable by the owner (data reset / account deletion)
+      match /attempts/{id} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && incoming().questionId is string
+          && incoming().score is number && incoming().score >= 0 && incoming().score <= 100
+          && incoming().confidence is number && incoming().confidence >= 1 && incoming().confidence <= 5
+          && incoming().date is string;
+        allow update: if false;
+      }
+
+      match /revisionSchedules/{questionId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && incoming().questionId == questionId && incoming().dueDate is string;
+      }
+
+      // read-only access to the previous Interview Coach app's cloud copy, for one-time migration
+      match /chunks/{id} {
+        allow read, delete: if isOwner(uid);
+        allow write: if false;
+      }
+
+      // everything else the app keeps per user:
+      // settings, goals, dailyPlans, studySessions, communicationSessions, voiceSessions, mockInterviews,
+      // bookmarks, notes, jobs, interviews, projects, achievements, notifications, devices, progress
+      match /{collection}/{docId} {
+        allow read, write: if isOwner(uid)
+          && collection in ['settings', 'goals', 'dailyPlans', 'studySessions', 'communicationSessions', 'voiceSessions',
+                            'mockInterviews', 'bookmarks', 'notes', 'jobs', 'interviews', 'projects', 'achievements',
+                            'notifications', 'devices', 'progress'];
+      }
+    }
+
+    // ---------------- roles ----------------
+    match /admins/{uid} {
+      allow read: if isOwner(uid);   // lets the app know whether to show the admin area
+      allow write: if false;         // granted only via the Firebase console / Admin SDK
+    }
+
+    // ---------------- master data ----------------
+    match /categories/{id} {
+      allow read: if signedIn();
+      allow create: if isAdmin() && stampedBy() && incoming().createdBy == request.auth.uid
+        && incoming().name is string && incoming().name.size() > 0 && incoming().isArchived is bool;
+      allow update: if isAdmin() && stampedBy();
+      allow delete: if false;        // archive instead
+    }
+    match /topics/{id} {
+      allow read: if signedIn();
+      allow create: if isAdmin() && stampedBy() && incoming().createdBy == request.auth.uid
+        && incoming().name is string && incoming().categoryId is string && incoming().isArchived is bool;
+      allow update: if isAdmin() && stampedBy();
+      allow delete: if false;
+    }
+    match /questions/{id} {
+      allow read: if signedIn();
+      allow create: if isAdmin() && stampedBy() && incoming().createdBy == request.auth.uid
+        && incoming().question is string && incoming().question.size() >= 8
+        && incoming().categoryId is string && incoming().topicId is string && incoming().isArchived is bool;
+      allow update: if isAdmin() && stampedBy();
+      allow delete: if false;
+    }
+    // meta/masterData (cache version), meta/appSettings (system settings, templates, revision ladder)
+    match /meta/{doc} {
+      allow read: if signedIn();
+      allow write: if isAdmin() && stampedBy();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

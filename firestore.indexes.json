@@ -1,0 +1,16 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "questions", "fieldPath": "answer", "indexes": [] },
+    { "collectionGroup": "questions", "fieldPath": "keyPoints", "indexes": [] },
+    { "collectionGroup": "questions", "fieldPath": "followUps", "indexes": [] },
+    { "collectionGroup": "questions", "fieldPath": "explanation", "indexes": [] },
+    { "collectionGroup": "attempts", "fieldPath": "answerText", "indexes": [] },
+    { "collectionGroup": "communicationSessions", "fieldPath": "transcript", "indexes": [] },
+    { "collectionGroup": "voiceSessions", "fieldPath": "turns", "indexes": [] },
+    { "collectionGroup": "mockInterviews", "fieldPath": "turns", "indexes": [] },
+    { "collectionGroup": "notes", "fieldPath": "body", "indexes": [] },
+    { "collectionGroup": "jobs", "fieldPath": "jd", "indexes": [] },
+    { "collectionGroup": "dailyPlans", "fieldPath": "items", "indexes": [] }
+  ]
+}
