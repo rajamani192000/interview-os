@@ -12,9 +12,18 @@ import { errorMessage } from './core/util';
 @Injectable()
 class AppErrorHandler implements ErrorHandler {
   private toast = inject(ToastService);
+  private auth = inject(AUTH_BACKEND);
   handleError(e: unknown): void {
     console.error(e);
-    const msg = errorMessage((e as { rejection?: unknown })?.rejection ?? e);
+    const err = (e as { rejection?: unknown })?.rejection ?? e;
+    const code = (err as { code?: string })?.code || '';
+    // session expired / signed out elsewhere: send to login instead of showing a broken page
+    if (/unauthenticated|user-token-expired|requires-recent-login/.test(code) || (code === 'permission-denied' && this.auth.user() === null)) {
+      this.toast.show('Your session ended. Please sign in again.');
+      if (!location.pathname.endsWith('/login')) location.assign(document.baseURI + 'login');
+      return;
+    }
+    const msg = errorMessage(err);
     if (msg && !/ExpressionChanged|ResizeObserver/.test(msg)) this.toast.bad(msg);
   }
 }

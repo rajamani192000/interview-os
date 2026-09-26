@@ -51,6 +51,7 @@ const TYPE_LABEL: Record<PlanItem['type'], string> = { revision: 'Revision', wea
 
       <section class="card stack">
         <div class="row between"><h2 style="margin:0">Today's preparation</h2><span class="badge {{ p.mode === 'normal' ? '' : 'warn' }}">{{ p.mode === 'normal' ? 'Normal plan' : p.mode === 'recovery' ? 'Recovery plan' : 'Interview plan' }}</span></div>
+        <p class="xs muted" style="margin:0">{{ why() }}</p>
         <app-bar [value]="pr().pct" />
         <div class="grid stats">
           <div class="stat"><span class="eyebrow">Progress</span><b>{{ pr().done }}/{{ pr().total }}</b></div>
@@ -162,6 +163,15 @@ export class TodayComponent implements OnInit {
     const n = (this.user.profile()?.displayName || '').split(' ')[0];
     const h = new Date().getHours();
     return `${h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'}${n ? ', ' + n : ''}`;
+  });
+  /** Explains how today's plan was built, from the stored plan and current data. */
+  why = computed(() => {
+    const p = this.plan.plan();
+    if (!p) return '';
+    const n = (t: string) => p.items.filter(i => i.type === t).length;
+    const parts = [n('revision') && `${n('revision')} due revision${n('revision') > 1 ? 's' : ''}`, n('weak') && `${n('weak')} weak`, n('new') && `${n('new')} new`, n('job-prep') && 'job prep'].filter(Boolean);
+    const lead = p.mode === 'recovery' ? `Recovery: ${this.missed()} planned day(s) missed, so a short restart instead of a backlog.` : p.mode === 'interview' ? `Interview in ${this.interviewDays()} day(s): revision and weak areas first, no new questions.` : `Built for your ${this.settings.settings().dailyMinutes}-minute target.`;
+    return `${lead} ${parts.join(' · ')}${parts.length ? ' · ' : ''}speaking drill${p.items.some(i => i.type === 'voice') ? ' · voice question' : ''}.`;
   });
   focus = computed(() => {
     const p = this.plan.plan();

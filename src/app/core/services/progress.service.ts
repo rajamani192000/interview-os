@@ -91,7 +91,7 @@ export class ProgressService {
     const areaScore = (k: string) => {
       const bank = qs.filter(q => area(q) === k);
       const att = recent.filter(a => { const q = qmap.get(a.questionId); return q && area(q) === k; });
-      if (!bank.length || !att.length) return null;
+      if (!bank.length || att.length < 5) return null; // not enough evidence yet
       const avg = att.reduce((n, a) => n + a.score, 0) / att.length;
       const strong = bank.filter(q => ['Strong', 'Mastered'].includes(sched.get(q.id)?.status || '')).length / bank.length;
       return Math.round(avg * 0.6 + strong * 100 * 0.4);
@@ -107,16 +107,16 @@ export class ProgressService {
     const cons = this.plans.consistency(30);
     const mocks = this.mocks.items().filter(m => m.status === 'completed' && m.overall !== undefined);
     const out = [
-      { key: 'technical', label: 'Technical', value: areaScore('technical'), note: '.NET, Angular, SQL concepts (last 30 days + mastery)' },
+      { key: 'technical', label: 'Technical', value: areaScore('technical'), note: 'Needs 5+ answers in 30 days. Blends recent scores with share of Strong/Mastered questions' },
       { key: 'coding', label: 'Coding', value: areaScore('coding'), note: 'Coding questions' },
       { key: 'design', label: 'System Design', value: areaScore('design'), note: 'Architecture and design questions' },
-      { key: 'communication', label: 'Communication', value: commParts.length ? Math.round(commParts.reduce((a, b) => a + b, 0) / commParts.length) : null, note: 'Speaking drills and voice interviews' },
-      { key: 'revision', label: 'Revision', value: scheduled.length ? Math.round((1 - overdue / scheduled.length) * 100) : null, note: 'Share of scheduled questions not overdue' },
-      { key: 'consistency', label: 'Consistency', value: cons.planned ? Math.round((cons.completed / cons.planned) * 100) : null, note: 'Planned days completed (30 days)' },
+      { key: 'communication', label: 'Communication', value: commParts.length >= 2 ? Math.round(commParts.reduce((a, b) => a + b, 0) / commParts.length) : null, note: 'Speaking drills and voice interviews' },
+      { key: 'revision', label: 'Revision', value: scheduled.length >= 5 ? Math.round((1 - overdue / scheduled.length) * 100) : null, note: 'Share of scheduled questions not overdue' },
+      { key: 'consistency', label: 'Consistency', value: cons.planned >= 3 ? Math.round((cons.completed / cons.planned) * 100) : null, note: 'Planned days completed (30 days)' },
       { key: 'mock', label: 'Mock interviews', value: mocks.length ? Math.round(mocks.slice(0, 5).reduce((n, m) => n + (m.overall || 0), 0) / Math.min(5, mocks.length)) : null, note: 'Last 5 completed mocks' },
     ];
     const vals = out.map(o => o.value).filter((v): v is number => v !== null);
-    return [{ key: 'overall', label: 'Overall preparation', value: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null, note: 'Average of the areas with data' }, ...out];
+    return [{ key: 'overall', label: 'Overall preparation', value: vals.length >= 2 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null, note: 'Average of the areas with enough data (shown once 2+ areas have data)' }, ...out];
   }
 
   /** Awards achievements that the recorded data now satisfies. Returns newly earned ones. */

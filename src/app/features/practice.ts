@@ -14,7 +14,7 @@ import { ListenSession, VoiceService } from '../core/services/voice.service';
 import { errorMessage } from '../core/util';
 import { UI } from '../shared/ui';
 
-type Stage = 'question' | 'answer' | 'self' | 'reference' | 'saved' | 'finished';
+type Stage = 'question' | 'learn' | 'answer' | 'self' | 'reference' | 'finished';
 const RATINGS: { r: Rating; label: string; hint: string }[] = [
   { r: 'again', label: 'Couldn’t answer', hint: 'Review again tomorrow' },
   { r: 'hard', label: 'Partly', hint: 'Missed important points' },
@@ -29,6 +29,7 @@ const RATINGS: { r: Rating; label: string; hint: string }[] = [
  */
 @Component({
   selector: 'app-practice',
+  host: { '(document:keydown)': 'onKey($event)' },
   imports: [FormsModule, RouterLink, ...UI],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="page narrow stack">
@@ -55,6 +56,7 @@ const RATINGS: { r: Rating; label: string; hint: string }[] = [
       <div class="row between small"><span class="muted">Question {{ index() + 1 }} of {{ queue().length }}</span>
         <span class="row"><span class="muted nowrap">⏱ {{ elapsedLabel() }}</span><button class="btn ghost sm" (click)="finish()">End session</button></span></div>
       <app-bar [value]="(index() / queue().length) * 100" />
+      @if (lastSaved(); as ls) { <div class="banner good small" role="status">✓ Saved · {{ ls.status }} · next revision {{ ls.dueDate }} ({{ ls.intervalDays }} day{{ ls.intervalDays === 1 ? '' : 's' }})</div> }
       <article class="card stack">
         <div class="row"><span class="badge">{{ cats.name(q.categoryId) }}</span><span class="badge">{{ topics.name(q.topicId) }}</span><span class="badge">{{ q.difficulty }}</span><app-status [status]="status(q)" /></div>
         <h2 style="font-size:1.2rem">{{ q.question }}</h2>
@@ -66,8 +68,22 @@ const RATINGS: { r: Rating; label: string; hint: string }[] = [
               <button class="btn primary big" (click)="stage.set('answer')">Answer (type or speak)</button>
               <button class="btn big" (click)="answerInHead()">I answered in my head</button>
             </div>
+            <button class="btn ghost block" (click)="learnFirst()">I don't know it yet — learn first</button>
+            <p class="xs muted center desk-only" style="margin:0">Keys: A answer · H in my head · L learn first</p>
+          }
+          @case ('learn') {
+            <div class="banner info small">Read it, say it once in your own words, then answer from memory. It will come back tomorrow for a real check.</div>
+            @if (q.keyPoints.length) { <div class="card slim" style="background:var(--surface-2)"><b class="small">Remember these points</b>
+              <ol class="small" style="margin:6px 0 0;padding-left:20px">@for (k of q.keyPoints; track $index) { <li>{{ k }}</li> }</ol></div> }
+            @if (q.answer) { <div class="answer small">{{ q.answer }}</div> } @else { <p class="small muted">No model answer stored for this question.</p> }
+            @if (q.explanation) { <p class="small muted">{{ q.explanation }}</p> }
+            <div class="grid two">
+              <button class="btn primary big" (click)="afterLearn()">Got it — now answer from memory</button>
+              <button class="btn big" (click)="learnOnly(q)">Learned — check it tomorrow</button>
+            </div>
           }
           @case ('answer') {
+            @if (learned) { <div class="banner info small">Answer from memory — the reference is hidden now.</div> }
             <div class="field"><label for="ans">Your answer</label>
               <textarea id="ans" class="input" rows="7" [(ngModel)]="answer" placeholder="Type your answer, or use the microphone"></textarea></div>
             @if (listen(); as l) {
@@ -83,6 +99,7 @@ const RATINGS: { r: Rating; label: string; hint: string }[] = [
           }
           @case ('self') {
             <p class="label">Before seeing the answer: how did you do?</p>
+            @if (learned) { <p class="xs muted" style="margin:0">You learned it just now, so today's rating counts as at most "Partly" — the real test is tomorrow.</p> }
             <div class="grid two">
               @for (r of ratings; track r.r) { <button class="btn" [class.primary]="rating() === r.r" (click)="pickRating(r.r)"><span>{{ r.label }}<br /><span class="xs muted">{{ r.hint }}</span></span></button> }
             </div>
@@ -112,12 +129,8 @@ const RATINGS: { r: Rating; label: string; hint: string }[] = [
               <textarea class="input" rows="3" [(ngModel)]="note" placeholder="Your own summary or a project example"></textarea>
               <button class="btn sm" style="margin-top:6px" (click)="saveNote(q)" [disabled]="!note.trim()">Save note</button>
             </details>
-            <button class="btn primary big block" (click)="save(q)" [disabled]="saving() || !rating() || !confidence()">{{ saving() ? 'Saving…' : 'Save & schedule revision' }}</button>
+            <button class="btn primary big block" (click)="save(q)" [disabled]="saving() || !rating() || !confidence()">{{ saving() ? 'Saving…' : index() + 1 < queue().length ? 'Save & next →' : 'Save & finish' }}</button>
             @if (saveError()) { <div class="banner bad small" role="alert">{{ saveError() }} <button class="btn sm" (click)="save(q)">Retry</button></div> }
-          }
-          @case ('saved') {
-            <div class="banner good">Saved. Status <b>{{ lastSaved()?.status }}</b> · next revision <b>{{ lastSaved()?.dueDate }}</b> ({{ lastSaved()?.intervalDays }} day{{ lastSaved()?.intervalDays === 1 ? '' : 's' }}).</div>
-            <button class="btn primary big block" (click)="next()">{{ index() + 1 < queue().length ? 'Continue →' : 'Finish' }}</button>
           }
         }
       </article>
@@ -161,6 +174,7 @@ export class PracticeComponent implements OnInit, OnDestroy {
   results = signal<{ q: Question; score: number; status: SrsStatus; next: string }[]>([]);
   answer = '';
   note = '';
+  learned = false;
   private spokenSec = 0;
   private qStart = Date.now();
   private sessionStart = Date.now();
@@ -204,6 +218,7 @@ export class PracticeComponent implements OnInit, OnDestroy {
       this.queue.set(this.build(this.source, q.get('ids') || q.get('q') || '', q.get('tag') as BookmarkTag | null));
       this.index.set(0);
       this.results.set([]);
+      this.lastSaved.set(null);
       this.reset();
       this.sessionStart = Date.now();
       if (this.queue().length) {
@@ -251,13 +266,55 @@ export class PracticeComponent implements OnInit, OnDestroy {
     this.confidence.set(null);
     this.evaluation.set(null);
     this.saveError.set('');
-    this.lastSaved.set(null);
+    this.learned = false;
     this.answer = '';
     this.note = '';
     this.spokenSec = 0;
     this.qStart = Date.now();
   }
 
+  /** "I don't know it yet": study the answer first, then recall it (rating capped at Partly). */
+  learnFirst() {
+    this.learned = true;
+    this.stage.set('learn');
+  }
+  afterLearn() {
+    this.answer = '';
+    this.stage.set('answer');
+  }
+  /** Just learned, no recall now: schedule it for tomorrow as a new learning item. */
+  async learnOnly(q: Question) {
+    this.rating.set('hard');
+    this.confidence.set(2);
+    await this.save(q);
+  }
+  /** Desktop shortcuts. Ignored while typing. */
+  onKey(e: KeyboardEvent) {
+    const t = e.target as HTMLElement;
+    if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.tagName === 'SELECT') || e.ctrlKey || e.metaKey || e.altKey) return;
+    const q = this.current();
+    if (!q) return;
+    const k = e.key.toLowerCase();
+    switch (this.stage()) {
+      case 'question':
+        if (k === 'a') this.stage.set('answer');
+        else if (k === 'h') this.answerInHead();
+        else if (k === 'l') this.learnFirst();
+        else return;
+        break;
+      case 'self':
+        if ('1234'.includes(k)) this.pickRating(this.ratings[+k - 1].r); else return;
+        break;
+      case 'reference':
+        if ('12345'.includes(k)) this.confidence.set(+k);
+        else if (k === 'enter' && this.rating() && this.confidence() && !this.saving()) this.save(q);
+        else return;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+  }
   answerInHead() {
     this.answer = '';
     this.stage.set('self');
@@ -309,18 +366,19 @@ export class PracticeComponent implements OnInit, OnDestroy {
     this.saving.set(true);
     this.saveError.set('');
     const ev = this.evaluation();
+    const capped = this.learned && (rating === 'good' || rating === 'easy') ? 'hard' : rating;
     // self-rating is the source of truth for scheduling; the checked score refines the stored score
-    const score = ev ? Math.round(RATING_SCORE[rating] * 0.5 + ev.score * 0.5) : RATING_SCORE[rating];
+    const score = Math.min(this.learned ? 50 : 100, ev ? Math.round(RATING_SCORE[capped] * 0.5 + ev.score * 0.5) : RATING_SCORE[capped]);
     try {
       const { schedule } = await this.attempts.record(q, {
-        mode: this.answer ? (this.spokenSec ? 'voice' : 'type') : 'recall', rating, score, confidence,
+        mode: this.answer ? (this.spokenSec ? 'voice' : 'type') : 'recall', rating: capped, score, confidence,
         durationSec: Math.round((Date.now() - this.qStart) / 1000), answerText: this.answer || undefined,
       });
       this.sessions.countQuestion();
       this.lastSaved.set(schedule);
       this.results.update(r => [...r, { q, score, status: this.revision.status(q.id), next: schedule.dueDate }]);
       await this.plan.completeMatching('question', q.id).catch(() => undefined);
-      this.stage.set('saved');
+      this.next();
     } catch (e) {
       this.saveError.set('Could not save this attempt: ' + errorMessage(e));
     } finally {

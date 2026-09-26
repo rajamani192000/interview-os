@@ -52,7 +52,7 @@ export class BarsComponent {
     } @else {
       <div class="grid stats">
         @for (r of readiness(); track r.key) {
-          <div class="card slim stack" style="gap:4px" [title]="r.note"><span class="eyebrow">{{ r.label }}</span><b style="font-size:1.25rem">{{ r.value === null ? '—' : r.value + '%' }}</b><app-bar [value]="r.value ?? 0" /></div>
+          <div class="card slim stack" style="gap:4px" [title]="r.note"><span class="eyebrow">{{ r.label }}</span><b style="font-size:1.25rem">{{ r.value === null ? '—' : r.value + '%' }}</b>@if (r.value === null) { <span class="xs muted">not enough data yet</span> }<app-bar [value]="r.value ?? 0" /></div>
         }
       </div>
       <div class="grid stats">

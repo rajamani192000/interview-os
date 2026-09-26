@@ -50,7 +50,8 @@ interface Item { questionId?: string; question: string; isFollowUp?: boolean; pa
         @if (view(); as v) {
           <app-modal [title]="labelOf(v.mode) + ' · ' + v.date" (closed)="view.set(null)">
             <div class="small muted">Technical {{ v.technicalScore ?? v.overall }} · Communication {{ v.communicationScore ?? '–' }} · Confidence {{ v.confidence ?? '–' }}/5</div>
-            @for (t of v.turns; track $index) { <div class="card slim stack" style="gap:4px"><b class="small">{{ t.question }}</b><div class="small pre">{{ t.answer || '—' }}</div><span class="xs muted">Score {{ t.score }} · {{ t.feedback.join(' ') }}</span></div> }
+            @for (t of v.turns; track $index) { <div class="card slim stack" style="gap:4px"><b class="small">{{ t.question }}</b><div class="small pre">{{ t.answer || '—' }}</div><span class="xs muted">Score {{ t.score }} · {{ t.feedback.join(' ') }}</span>
+              @if (t.recordingRef) { <div><button class="btn sm" (click)="play(t.recordingRef)">▶ Play my answer</button></div> }</div> }
             @if (v.suggestions?.length) { <b class="small">Suggestions</b> @for (x of v.suggestions; track $index) { <div class="small">• {{ x }}</div> } }
           </app-modal>
         }
@@ -186,6 +187,17 @@ export class VoiceComponent implements OnInit, OnDestroy {
   ngOnDestroy() {
     this.listen()?.stop();
     this.voice.stopSpeaking();
+  }
+  private audio: HTMLAudioElement | null = null;
+  /** Plays a saved answer recording (device IndexedDB or Firebase Storage). */
+  async play(ref: string) {
+    try {
+      const blob = await this.recordings.load(ref);
+      if (!blob) { this.toast.bad('Recording not found on this device.'); return; }
+      this.audio?.pause();
+      this.audio = new Audio(URL.createObjectURL(blob));
+      await this.audio.play();
+    } catch (e) { this.toast.bad('Could not play the recording: ' + errorMessage(e)); }
   }
   labelOf(m: string) { return VOICE_MODES.find(x => x.id === m)?.label ?? m; }
 

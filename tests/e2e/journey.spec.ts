@@ -146,13 +146,32 @@ test('core journey: START TODAY → questions → communication → voice → co
   await expect(page).toHaveURL(/app\/practice\?source=plan/);
   for (let i = 0; i < 10; i++) {
     if (await page.getByText('Session complete').isVisible()) break;
-    await page.getByRole('button', { name: 'I answered in my head' }).click();
-    await page.getByRole('button', { name: /Good/ }).first().click();
-    await expect(page.getByText('Reference answer')).toBeVisible();
-    await page.getByRole('button', { name: 'Confidence 4' }).click();
-    await page.getByRole('button', { name: 'Save & schedule revision' }).click();
-    await expect(page.getByText(/next revision/)).toBeVisible();
-    await page.getByRole('button', { name: /Continue|Finish/ }).click();
+    if (i === 0) {
+      // learn-first path: study, then answer from memory; rating is capped
+      await page.getByRole('button', { name: /learn first/ }).click();
+      await page.getByRole('button', { name: 'Got it — now answer from memory' }).click();
+      await page.locator('textarea').fill('Recalled answer from memory with the key idea and an example.');
+      await page.getByRole('button', { name: 'Done — evaluate' }).click();
+      await expect(page.getByText(/counts as at most "Partly"/)).toBeVisible();
+      await page.getByRole('button', { name: /Good/ }).first().click();
+      await page.getByRole('button', { name: 'Confidence 4' }).click();
+    } else if (i === 1) {
+      // keyboard shortcuts: H → in my head, 3 → Good, 4 → confidence, Enter → save
+      await page.keyboard.press('h');
+      await page.keyboard.press('3');
+      await expect(page.getByText('Reference answer')).toBeVisible();
+      await page.keyboard.press('4');
+      await page.keyboard.press('Enter');
+      await expect(page.getByText(/✓ Saved/).or(page.getByText('Session complete'))).toBeVisible();
+      await expect(page.getByText('Session complete').or(page.getByRole('button', { name: 'I answered in my head' }))).toBeVisible();
+      continue;
+    } else {
+      await page.getByRole('button', { name: 'I answered in my head' }).click();
+      await page.getByRole('button', { name: /Good/ }).first().click();
+      await expect(page.getByText('Reference answer')).toBeVisible();
+      await page.getByRole('button', { name: 'Confidence 4' }).click();
+    }
+    await page.getByRole('button', { name: /Save & (next|finish)/ }).click();
     await expect(page.getByText('Session complete').or(page.getByRole('button', { name: 'I answered in my head' }))).toBeVisible();
   }
   await expect(page.getByText('Session complete')).toBeVisible();
@@ -206,6 +225,10 @@ test('migrates progress from an Interview Coach backup', async ({ page }) => {
   await expect(page.getByText('Remember: Migrated note text')).toBeVisible();
   await page.goto('/app/jobs');
   await expect(page.getByText('OldCo')).toBeVisible();
+  // rebuilding the plan from another page must keep today's completed work and not trigger recovery
+  await page.goto('/app/today');
+  await expect(page.getByText("Today's plan is complete")).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'WELCOME BACK' })).toHaveCount(0);
   await persist(page);
 });
 

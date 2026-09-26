@@ -188,3 +188,4 @@ table.table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .mic-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bad); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.desk-only{display:none}@media(min-width:900px){.desk-only{display:block}}

@@ -55,3 +55,11 @@ describe('daily plan', () => {
     expect(planProgress(null).total).toBe(0);
   });
 });
+
+describe('new-question interleaving', () => {
+  it('mixes categories and puts focus categories first', () => {
+    const p = buildPlan({ ...base, newPerDay: 4, dailyMinutes: 60, focusCategoryIds: ['c1'] });
+    const cats = p.items.filter(i => i.type === 'new').map(i => qs.find(q => q.id === i.refId)!.categoryId);
+    expect(cats).toEqual(['c1', 'c2', 'c1', 'c2']);
+  });
+});

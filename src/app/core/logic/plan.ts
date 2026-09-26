@@ -57,14 +57,25 @@ export function buildPlan(input: PlanInput): DailyPlan {
   };
   const weak = input.weakQuestionIds.filter(id => qById.has(id));
 
-  const newQs = () =>
-    input.questions
+  /**
+   * New questions: focus categories first, then by priority/difficulty, interleaved across categories
+   * so one day isn't all SQL (mixing topics improves retention).
+   */
+  const newQs = () => {
+    const sorted = input.questions
       .filter(q => !scheduled.has(q.id) && !used.has(q.id))
       .sort((a, b) => {
-        const f = (q: Question) => (input.focusCategoryIds.includes(q.categoryId) ? 0 : 1);
         const d = (q: Question) => ['Easy', 'Medium', 'Hard', 'Senior'].indexOf(q.difficulty);
-        return f(a) - f(b) || a.priority - b.priority || d(a) - d(b) || a.id.localeCompare(b.id);
+        return a.priority - b.priority || d(a) - d(b) || a.id.localeCompare(b.id);
       });
+    const byCat = new Map<string, Question[]>();
+    for (const q of sorted) (byCat.get(q.categoryId) ?? byCat.set(q.categoryId, []).get(q.categoryId)!).push(q);
+    const focus = input.focusCategoryIds.filter(c => byCat.has(c));
+    const order = [...focus, ...[...byCat.keys()].filter(c => !focus.includes(c)).sort((a, b) => byCat.get(a)![0].priority - byCat.get(b)![0].priority || a.localeCompare(b))];
+    const out: Question[] = [];
+    for (let i = 0; out.length < sorted.length; i++) for (const c of order) { const q = byCat.get(c)![i]; if (q) out.push(q); }
+    return out;
+  };
 
   if (mode === 'recovery') {
     due.slice(0, RECOVERY_SHAPE.revision).forEach(s => push('revision', s.questionId, title(s.questionId)));

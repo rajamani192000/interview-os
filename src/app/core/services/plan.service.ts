@@ -110,7 +110,8 @@ export class DailyPlanService {
   }
 
   lastStudyDay(before: string): string | undefined {
-    const days = [...this.attempts.items().map(a => a.date), ...this.sessions.items().map(s => s.date)].filter(d => d < before).sort();
+    // activity today counts: someone who already studied today is not "returning after a break"
+    const days = [...this.attempts.items().map(a => a.date), ...this.sessions.items().map(s => s.date)].filter(d => d <= before).sort();
     return days[days.length - 1];
   }
 
@@ -147,9 +148,21 @@ export class DailyPlanService {
       p.items.push({ id: `job-prep-${next.jobId}`, type: 'job-prep', refId: next.jobId, title: `Prepare for ${next.company} (${next.round}): review JD gaps`, minutes: 10, done: false });
       p.minutesPlanned += 10;
     }
-    if (keep.length) {
-      const doneIds = new Set(keep.filter(i => i.done).map(i => i.id));
-      p.items = [...keep.filter(i => i.done), ...p.items.filter(i => !doneIds.has(i.id))];
+    const done = keep.filter(i => i.done);
+    if (done.length) {
+      // Rebuilding mid-day: keep finished work, don't repeat it, and only add what still fits the budget.
+      const doneMinutes = done.reduce((n, i) => n + i.minutes, 0);
+      const doneRefs = new Set(done.map(i => i.refId).filter(Boolean));
+      const doneTypes = new Set(done.filter(i => !i.refId).map(i => i.type));
+      // a finished day stays finished (unless the user explicitly asks for a recovery session)
+      let left = forceRecovery ? Infinity : keep.every(i => i.done) ? 0 : Math.max(0, s.dailyMinutes - doneMinutes);
+      const extra = p.items.filter(i => {
+        if (i.refId ? doneRefs.has(i.refId) : doneTypes.has(i.type)) return false;
+        if (i.minutes > left) return false;
+        left -= i.minutes;
+        return true;
+      });
+      p.items = [...done, ...extra];
       p.minutesPlanned = p.items.reduce((n, i) => n + i.minutes, 0);
     }
     return p;
@@ -159,7 +172,12 @@ export class DailyPlanService {
   async regenerate(forceRecovery = false) {
     await this.deps();
     const today = this.clock.today();
-    const p = this.generate(today, this.plan()?.date === today ? this.plan()!.items.filter(i => i.done) : [], forceRecovery);
+    // never lose completed items: load today's stored plan first if this page hasn't yet
+    if (this.plan()?.date !== today) {
+      const stored = await this.store.get<DailyPlan>(this.path(today)).catch(() => null);
+      if (stored) this.plan.set(stored);
+    }
+    const p = this.generate(today, this.plan()?.date === today ? this.plan()!.items : [], forceRecovery);
     await this.store.set(this.path(today), clean({ ...p, generatedAt: SERVER_TIME, startedAt: this.plan()?.startedAt }));
     this.plan.set({ ...p, generatedAt: Date.now(), startedAt: this.plan()?.startedAt });
   }
