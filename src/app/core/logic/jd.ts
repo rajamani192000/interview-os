@@ -15,7 +15,7 @@ export interface SkillCoverage {
 /** Known skill vocabulary. Each entry: display name → pattern used to find it in a JD and in questions. */
 export const SKILLS: [string, RegExp][] = [
   ['C#', /\bc#|c sharp\b/i],
-  ['.NET Core / ASP.NET Core', /\.net\s*(core|\d)|asp\.?net|dotnet/i],
+  ['.NET Core / ASP.NET Core', /\.net\b|asp\.?net|dotnet/i],
   ['Web API / REST', /web\s*api|rest(ful)?\b|http api/i],
   ['Entity Framework', /entity\s*framework|\bef\s*core\b|\bef\b/i],
   ['LINQ', /\blinq\b/i],

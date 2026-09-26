@@ -21,6 +21,9 @@ export interface InterviewContext {
   years?: number;
   stack?: string[];
   mode?: string;
+  /** recent interviewer/candidate exchange, so follow-ups stay in context */
+  conversation?: string;
+  style?: string;
 }
 
 interface ProviderImpl {
@@ -136,9 +139,9 @@ export class AIInterviewService {
     const p = await this.impl();
     if (!p || !(await this.ready()).ok) return local();
     const system = `You are a strict but fair senior technical interviewer for a ${ctx.role || 'Senior Full-Stack (.NET + Angular)'} role${ctx.years ? `, candidate has ${ctx.years} years experience` : ''}.
-Evaluate ONLY against the reference answer and key points provided; do not invent facts about the candidate.
+Evaluate against the reference answer and key points when provided; if there is no reference, judge relevance, structure, clarity and concrete examples. Do not invent facts about the candidate.${ctx.style ? ` Interviewer style: ${ctx.style}.` : ''} The followUp must build on what the candidate just said and must not repeat earlier questions.
 Reply with JSON only: {"score":0-100,"covered":[short strings],"missed":[short strings],"feedback":[max 4 short actionable tips],"followUp":"one realistic follow-up question"}`;
-    const user = `Question: ${q.question}\n\nReference answer (the candidate's own notes):\n${q.answer.slice(0, 4000)}\n\nKey points: ${(q.keyPoints || []).join('; ') || '(none)'}\n\nCandidate's answer${durationSec ? ` (spoken, ${durationSec}s)` : ''}:\n${answer.slice(0, 5000)}`;
+    const user = `${ctx.conversation ? 'Conversation so far:\n' + ctx.conversation.slice(-3000) + '\n\n' : ''}Question: ${q.question}\n\nReference answer (the candidate's own notes):\n${q.answer.slice(0, 4000)}\n\nKey points: ${(q.keyPoints || []).join('; ') || '(none)'}\n\nCandidate's answer${durationSec ? ` (spoken, ${durationSec}s)` : ''}:\n${answer.slice(0, 5000)}`;
     try {
       const raw = await p.complete(system, user);
       const j = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));

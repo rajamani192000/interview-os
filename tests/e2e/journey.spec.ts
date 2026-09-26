@@ -277,7 +277,7 @@ test('jobs: JD mapping, interview round and countdown', async ({ page }) => {
   await persist(page);
 });
 
-test('mock interview and project round', async ({ page }) => {
+test('dynamic mock interview: setup, follow-ups, report, history, progress', async ({ page }) => {
   await open(page);
   await signIn(page, USER);
   await page.goto('/app/projects');
@@ -288,17 +288,62 @@ test('mock interview and project round', async ({ page }) => {
   await page.getByLabel('Architecture').fill('Angular SPA, ASP.NET Core Web API, SQL Server.');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Hospital ERP' })).toBeVisible();
+  // dynamic mock interview: setup → live interviewer → follow-ups → report → history → progress
   await page.goto('/app/mock-interview');
-  await page.getByLabel('Read questions aloud').uncheck();
-  await page.getByRole('button', { name: 'Start mock interview' }).click();
-  await expect(page.getByText(/Technical · 1 of/)).toBeVisible();
-  for (let i = 0; i < 3; i++) {
-    await page.locator('textarea').fill('An answer with enough words to be evaluated by the offline key point check in this mock.');
-    await page.getByRole('button', { name: 'Submit' }).click();
-    await page.getByRole('button', { name: 'Next →' }).click();
+  await page.getByRole('button', { name: 'Full Mock', exact: true }).click();
+  await page.getByLabel('Interview style').selectOption('Friendly');
+  await page.getByLabel('Number of questions').fill('3');
+  await page.getByLabel('Interviewer speaks questions aloud').uncheck();
+  await page.getByRole('button', { name: 'Start interview' }).click();
+  await expect(page.locator('.bubble.ai').last()).toContainText("Hi Rajamani, thanks for joining. Let's begin for the Full Stack Developer role. Please introduce yourself");
+  await expect(page.getByRole('status').filter({ hasText: 'Listening' })).toBeVisible();
+  await page.getByLabel('Your answer').fill('I have 4 years of experience in .NET and Angular. In my current role I build Web APIs with ASP.NET Core and SQL Server for a hospital ERP.');
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.locator('.bubble.ai').last()).toContainText(/You mentioned (\.NET|Angular|SQL|ASP\.NET|Web API)/i);
+  // "I don't know" is handled naturally (hint or move on), never a dead end
+  await page.getByRole('button', { name: "I don't know" }).click();
+  await expect(page.locator('.bubble.me').last()).toHaveText(/I don't know/);
+  const doneHeading = page.getByRole('heading', { name: 'Mock Interview Score' });
+  for (let i = 0; i < 16; i++) {
+    const box = page.getByLabel('Your answer');
+    await expect(box.or(doneHeading)).toBeVisible();
+    if (await doneHeading.isVisible()) break;
+    const last = (await page.locator('.bubble.ai').last().textContent()) || '';
+    try {
+      await box.fill(/questions for me/.test(last) ? 'No questions, thank you for your time.' : 'For example, in my project we used this in production. First I would explain the concept, then how it works, and finally the trade-offs.', { timeout: 3000 });
+      await page.getByRole('button', { name: 'Send answer' }).click({ timeout: 3000 });
+    } catch { continue; } // the interview moved on (e.g. finished) while we were typing
+    await page.waitForFunction(() => !document.querySelector('.mood')?.textContent?.includes('Thinking'));
   }
-  await page.getByRole('button', { name: 'Finish now' }).click();
-  await expect(page.getByRole('heading', { name: /Result: \d+\/100/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mock Interview Score' })).toBeVisible();
+  for (const r of ['Overall', 'Technical Knowledge', 'Problem Solving', 'Communication', 'Confidence', 'Project Knowledge']) await expect(page.locator('.score-row', { hasText: r }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Practice your weak areas' })).toBeVisible();
+  // stored in Firestore (demo backend): v2 document with transcript + report, and topic progress
+  const uid2 = await page.evaluate(() => JSON.parse(localStorage.getItem('ios.memory.auth.v1')!).current);
+  const docs = await page.evaluate(u => Object.entries(JSON.parse(localStorage.getItem('ios.memory.db.v1')!)).filter(([k]) => k.startsWith(`users/${u}/mockInterviews/`) || k.startsWith(`users/${u}/skillProgress/`)).map(([k, v]) => [k.split('/')[2], v]), uid2);
+  const mock = docs.find(([c, v]) => c === 'mockInterviews' && (v as { version?: number }).version === 2)![1] as { mturns: unknown[]; report: { scores: { overall: number } }; status: string; config: { type: string } };
+  expect(mock.status).toBe('completed');
+  expect(mock.config.type).toBe('Full Mock');
+  expect(mock.mturns.length).toBeGreaterThanOrEqual(5);
+  expect(mock.report.scores.overall).toBeGreaterThan(0);
+  expect(docs.some(([c]) => c === 'skillProgress')).toBe(true);
+  // transcript and history
+  await page.getByRole('button', { name: 'View transcript' }).click();
+  await expect(page.getByRole('heading', { name: 'Transcript' })).toBeVisible();
+  await expect(page.getByText(/Interviewer: Hi Rajamani/)).toBeVisible();
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.locator('button.card', { hasText: 'Full Mock · Full Stack Developer' }).first()).toContainText('Score:');
+  await page.getByRole('button', { name: 'Progress' }).click();
+  await expect(page.getByText('Interview #1')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'By topic' })).toBeVisible();
+  // weak-area practice: an improvement interview is generated from the report
+  await page.getByRole('button', { name: /My Mock Interviews/ }).click();
+  await page.locator('button.card', { hasText: 'Full Mock · Full Stack Developer' }).first().click();
+  const improve = page.getByRole('button', { name: /Improvement Interview/ }).first();
+  if (await improve.isVisible()) {
+    await improve.click();
+    await expect(page.getByText(/Improvement interview: focusing on/)).toBeVisible();
+  }
   await persist(page);
 });
 

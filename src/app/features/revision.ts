@@ -166,7 +166,7 @@ export class WeakAreasComponent implements OnInit {
   });
   interviewMisses = computed(() => {
     const from = addDays(this.clock.today(), -60);
-    return [...this.voice.items().filter(v => v.date >= from).flatMap(v => v.turns), ...this.mocks.items().filter(m => m.date >= from).flatMap(m => m.turns)]
+    return [...this.voice.items().filter(v => v.date >= from).flatMap(v => v.turns), ...this.mocks.items().filter(m => m.date >= from).flatMap(m => m.turns), ...this.mocks.items().filter(m => m.date >= from).flatMap(m => (m.mturns || []).filter(t => t.eval && t.kind !== 'wrapup').map(t => ({ question: t.prompt, score: t.eval!.score })))]
       .filter(t => t.score < 50).slice(0, 6).map(t => ({ q: t.question.slice(0, 90), score: t.score }));
   });
 

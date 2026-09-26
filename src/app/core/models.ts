@@ -241,19 +241,102 @@ export interface VoiceSession {
   createdAt?: Ts;
 }
 
+/* ---------- Mock interview v2 (dynamic interviewer) ---------- */
+export const MOCK_TYPES = ['Technical', 'HR', 'Managerial', 'Full Mock', 'Company-specific', 'Role-specific'] as const;
+export type MockType = (typeof MOCK_TYPES)[number];
+export const MOCK_ROLES = ['.NET Developer', 'Angular Developer', 'Full Stack Developer', 'Senior Full Stack Developer', 'Backend Developer', 'Frontend Developer'] as const;
+export const EXPERIENCE_LEVELS = ['Fresher', '1–3 years', '3–5 years', '5+ years'] as const;
+export type MockStyle = 'Friendly' | 'Professional' | 'Challenging';
+
+export interface MockConfig {
+  type: MockType;
+  role: string;
+  experience: (typeof EXPERIENCE_LEVELS)[number];
+  technologies: string[]; // category ids from the user's bank
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  durationMin: 15 | 30 | 45 | 60;
+  questionCount: number; // main questions (follow-ups are extra)
+  style: MockStyle;
+  jobId?: string;
+  focusTopicIds?: string[]; // "improvement interview" for weak topics
+}
+
+/** Internal evaluation of one answer (0..100 each). */
+export interface TurnEval {
+  score: number; // overall for the turn
+  correctness: number;
+  completeness: number;
+  relevance: number;
+  communication: number;
+  confidence: number;
+  structure: number;
+  practical: number;
+  examples: boolean;
+  missed: string[];
+  feedback: string[];
+  provider: string;
+  followUp?: string; // AI-suggested follow-up (kept for conversation context)
+}
+
+export type MockTurnKind = 'intro' | 'question' | 'followup' | 'project' | 'behavioral' | 'wrapup';
+export interface MockTurn {
+  n: number;
+  kind: MockTurnKind;
+  prompt: string; // exactly what the interviewer said
+  questionId?: string;
+  categoryId?: string;
+  topicId?: string;
+  level?: number; // difficulty level 0..3 when asked
+  answer: string;
+  idk?: boolean; // "I don't know"
+  durationSec: number;
+  eval?: TurnEval;
+}
+
+export interface MockReport {
+  scores: { technical: number | null; problemSolving: number | null; communication: number; confidence: number; project: number | null; overall: number };
+  strengths: string[];
+  improvements: string[];
+  struggled: { prompt: string; questionId?: string; missed: string[]; answer: string; betterAnswer: string }[];
+  weakCategories: { categoryId: string; name: string; score: number }[];
+  weakTopicIds: string[];
+  topicScores: { topicId: string; name: string; score: number }[];
+  communicationWeak: boolean;
+}
+
 export interface MockInterview {
   id?: string;
   title: string;
   jobId?: string;
+  /** v1 (fixed rounds) documents keep these; v2 uses config/turns/report */
   rounds: { name: string; questionIds: string[] }[];
   turns: InterviewTurn[];
+  version?: 2;
+  config?: MockConfig;
+  mturns?: MockTurn[];
+  report?: MockReport;
+  askedIds?: string[];
+  level?: number;
   status: 'in-progress' | 'completed';
   overall?: number;
   strengths?: string[];
   improvements?: string[];
   durationSec: number;
+  startedAt?: Ts;
+  endedAt?: Ts;
   date: string;
   createdAt?: Ts;
+}
+
+/** users/{uid}/skillProgress/{topicId}: rolling scores per topic from mock interviews. */
+export interface SkillProgress {
+  id?: string;
+  topicId: string;
+  categoryId: string;
+  name: string;
+  samples: { date: string; score: number; mockId: string }[];
+  avg: number;
+  updatedAt?: Ts;
 }
 
 export const BOOKMARK_TAGS = ['Bookmark', 'Important', 'Difficult', 'Interview Tomorrow', 'Need Revision'] as const;

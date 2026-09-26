@@ -54,13 +54,13 @@ service cloud.firestore {
       // everything else the app keeps per user:
       // settings, goals, dailyPlans, studySessions, communicationSessions, voiceSessions, mockInterviews,
       // bookmarks, notes, jobs, interviews, projects, achievements, notifications, devices, progress,
-      // schedule (weekly), scheduleOverrides (per date), usage (per date), scheduleHistory
+      // schedule (weekly), scheduleOverrides (per date), usage (per date), scheduleHistory, skillProgress (per topic)
       match /{collection}/{docId} {
         allow read, write: if isOwner(uid)
           && collection in ['settings', 'goals', 'dailyPlans', 'studySessions', 'communicationSessions', 'voiceSessions',
                             'mockInterviews', 'bookmarks', 'notes', 'jobs', 'interviews', 'projects', 'achievements',
                             'notifications', 'devices', 'progress',
-                            'schedule', 'scheduleOverrides', 'usage', 'scheduleHistory'];
+                            'schedule', 'scheduleOverrides', 'usage', 'scheduleHistory', 'skillProgress'];
       }
     }
 
